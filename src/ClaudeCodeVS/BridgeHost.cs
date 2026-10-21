@@ -56,7 +56,7 @@ internal sealed class BridgeHost : IDisposable
         //    Concord component's change stream and needs the driver for stop-on-change.
         _driver = new Debugging.DebuggerDriver();
         _dataBpBridge = new Debugging.DataBreakpointBridge(_driver);
-        var mcp = new McpServer(new ToolRegistry(BuildDebugTools(_driver, _dataBpBridge)));
+        var mcp = new McpServer(new ToolRegistry(BuildDebugTools(_driver, _dataBpBridge)), ServerInstructions);
         mcp.ToolCalled += Ui.BridgeStatus.RecordToolCall;
         _server = new McpHttpServer(_lockfile.Port, _lockfile.AuthToken, mcp);
 
@@ -90,6 +90,21 @@ internal sealed class BridgeHost : IDisposable
     }
 
     /// <summary>
+    /// Sent to the CLI at connect time and kept in the model's context for the session. Stands in for
+    /// upstream's per-prompt break-state hook: instead of pushing the paused state into every prompt (a
+    /// PowerShell start per prompt, in every project), tell the model when to go and look.
+    /// </summary>
+    private const string ServerInstructions =
+        "These tools read and drive the user's live Visual Studio debugger (managed .NET). "
+        + "When the user mentions a breakpoint, being paused or stopped, a crash, an exception, a hang, or "
+        + "asks about runtime values, call vs_debug_state first: it returns the stop location, call stack "
+        + "and current locals, or the mode if not paused. Prefer that ground truth over inferring runtime "
+        + "behaviour from source. If the app misbehaves silently or an exception seems to vanish, read the "
+        + "Debug output pane with vs_read_output - first-chance exceptions and Debug/Trace output land there "
+        + "and never reach a terminal. Drive tools may be switched off by the user; if one refuses, say so "
+        + "rather than retrying.";
+
+    /// <summary>
     /// The vs-debug tool set. Reads are ungated; drives (and arming data breakpoints) check
     /// <see cref="Ui.BridgeStatus.AllowDebuggerDrive"/> themselves.
     /// </summary>
@@ -104,6 +119,7 @@ internal sealed class BridgeHost : IDisposable
         yield return new VsThreadsTool();        // all threads + stacks
         yield return new VsExceptionTool();      // inspect $exception at a throw / in a catch
         yield return new VsListProcessesTool();  // attach targets (debug real running apps)
+        yield return new VsReadOutputTool();     // Output window panes, above all Debug (invisible to a terminal)
         yield return new VsWaitChainsTool();     // ClrMD snapshot: structured lock ownership + deadlock suspects
         yield return new VsAsyncStacksTool();    // ClrMD snapshot: logical async call-stack reconstruction
         yield return new VsHeapStatsTool();      // ClrMD snapshot: heap composition + GC/handle/finalizer health

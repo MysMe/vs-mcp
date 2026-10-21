@@ -12,6 +12,8 @@ A lean fork of firish/claude_code_vs: a VS 2026 in-proc extension that exposes t
   - `Hooks/McpInstaller.cs` + `Hooks/vs-debug-shim.ps1`: writes the stdio shim to `~/.claude/vs-debug/` on startup; runs `claude mcp add --scope user vs-debug ...` when the user clicks Register. Never edits `~/.claude.json` directly; it only reads it to show registration status.
   - `Ui/StatusDialog.cs`: the modeless status popup. `Ui/BridgeStatus.cs`: shared state and the persisted drive gate. It keeps the upstream name so the tool files stay byte-identical to upstream.
   - `Debugging/` + `Tools/{DebugTools,DriveTools,DataBpTools}.cs`: unchanged from upstream apart from hint text.
+  - `Editor/OutputWindowReader.cs` (verbatim upstream) + `Tools/OutputTools.cs` (`vs_read_output`, upstream's minus `vs_build`, defaulting to the Debug pane).
+  - `BridgeHost.ServerInstructions`: MCP `instructions` sent on initialize, telling the model when to reach for `vs_debug_state` / `vs_read_output`.
 - `src/ClaudeCodeVS.ClrMdWorker/`: out-of-proc ClrMD worker (ClrMD can't load in devenv), bundled under `ClrMdWorker\` in the VSIX.
 - `src/ClaudeCodeVS.DataBpComponent/`: Concord component for managed data breakpoints (`DebuggerEngineExtension` asset).
 

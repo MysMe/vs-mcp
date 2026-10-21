@@ -44,9 +44,11 @@ Registered with Claude as 'vs-debug' (user scope)
 
 ## Tools
 
-Reads: `vs_debug_state`, `vs_list_breakpoints`, `vs_get_frame_locals`, `vs_evaluate`, `vs_expand`, `vs_threads`, `vs_exception`, `vs_list_processes`, plus ClrMD snapshots `vs_wait_chains`, `vs_async_stacks`, `vs_heap_stats`, `vs_threadpool`, `vs_gc_roots`, `vs_heap_diff`.
+Reads: `vs_debug_state`, `vs_list_breakpoints`, `vs_get_frame_locals`, `vs_evaluate`, `vs_expand`, `vs_threads`, `vs_exception`, `vs_list_processes`, `vs_read_output` (the Output window's Debug pane: Debug/Trace output and first-chance exceptions that never reach a terminal), plus ClrMD snapshots `vs_wait_chains`, `vs_async_stacks`, `vs_heap_stats`, `vs_threadpool`, `vs_gc_roots`, `vs_heap_diff`.
 
 Drive: `vs_continue`, `vs_step_over/into/out`, `vs_run_to_line`, `vs_break_all`, `vs_set/remove_breakpoint`, `vs_break_on_thrown`, `vs_freeze_thread`, `vs_set_next_statement`, `vs_start/stop_debugging`, `vs_attach/detach`, and data breakpoints `vs_set_data_breakpoint` / `vs_get_data_changes` / `vs_remove_data_breakpoint`.
+
+On connect, the server also sends Claude a short instructions note: check `vs_debug_state` first whenever you mention a breakpoint, crash or runtime values. This replaces upstream's hook that injected the paused state into every prompt.
 
 The full reference, worked examples and limitations are in [`docs/DEBUGGER.md`](docs/DEBUGGER.md). Runnable fixtures live in [`demo/`](demo).
 

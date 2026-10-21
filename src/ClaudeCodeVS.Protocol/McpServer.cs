@@ -17,8 +17,15 @@ public sealed class McpServer
     private const string DefaultProtocolVersion = "2025-06-18";
 
     private readonly ToolRegistry _tools;
+    private readonly string? _instructions;
 
-    public McpServer(ToolRegistry tools) => _tools = tools;
+    /// <param name="instructions">Optional MCP server instructions, sent in the initialize result; the CLI
+    /// puts them in the model's context for the whole session.</param>
+    public McpServer(ToolRegistry tools, string? instructions = null)
+    {
+        _tools = tools;
+        _instructions = instructions;
+    }
 
     /// <summary>Raised with the tool name on every tools/call, before the tool runs (status display).</summary>
     public event Action<string>? ToolCalled;
@@ -62,12 +69,12 @@ public sealed class McpServer
         }
     }
 
-    private static JObject BuildInitializeResult(JObject? @params)
+    private JObject BuildInitializeResult(JObject? @params)
     {
         // Echo the client's protocolVersion when offered, so we never mismatch.
         string protocolVersion = (string?)@params?["protocolVersion"] ?? DefaultProtocolVersion;
 
-        return new JObject
+        var result = new JObject
         {
             ["protocolVersion"] = protocolVersion,
             ["capabilities"] = new JObject { ["tools"] = new JObject() },
@@ -77,6 +84,9 @@ public sealed class McpServer
                 ["version"] = ServerVersion,
             },
         };
+        if (!string.IsNullOrEmpty(_instructions))
+            result["instructions"] = _instructions;
+        return result;
     }
 
     private JObject BuildToolsList()
