@@ -4,7 +4,7 @@
        but produces a self-contradicting result at runtime. Unlike CheckoutBuggy/CheckoutDemo, the flaw
        is NOT described in any comment - the point is to see whether Claude can DRIVE the debugger
        (set breakpoints, continue, step, inspect values across iterations) to find it, rather than spot
-       it by reading. Open in VS, enable "Allow Claude to drive debugger" in the panel, then ask Claude
+       it by reading. Open in VS, run `claude` in this folder, then ask Claude
        to investigate why the peak window is inconsistent with its reported sum. -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>

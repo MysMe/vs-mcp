@@ -9,8 +9,8 @@ namespace ClaudeCodeVs.Tools;
 /// <summary>
 /// Phase 3 DRIVE tools - execution control + breakpoint mutation, on the same /mcp pull surface as the
 /// Phase 2 readers. Every one is gated behind <see cref="Ui.BridgeStatus.AllowDebuggerDrive"/> (the
-/// panel's "Allow Claude to drive debugger" toggle, default OFF): when disabled the tool returns a clear
-/// refusal instead of acting, so model-controlled execution is strictly opt-in. The actual EnvDTE work
+/// status popup's "Allow Claude to drive the debugger" checkbox, default ON): when disabled the tool returns a clear
+/// refusal instead of acting, so model-controlled execution can be switched off. The actual EnvDTE work
 /// (and the await-next-break coordination) lives in <see cref="DebuggerDriver"/>.
 /// </summary>
 internal abstract class DriveToolBase : IIdeTool
@@ -30,7 +30,7 @@ internal abstract class DriveToolBase : IIdeTool
             return new JObject
             {
                 ["error"] = "debugger driving is disabled",
-                ["hint"] = "Enable 'Allow Claude to drive debugger' in the Claude Code panel in Visual Studio, then retry.",
+                ["hint"] = "Enable 'Allow Claude to drive debugger' in Visual Studio (Tools > Claude Debug MCP Status), then retry.",
             };
         }
 

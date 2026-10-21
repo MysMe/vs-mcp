@@ -1,12 +1,12 @@
 # Live debugger integration
 
-Most coding assistants only see your source. This extension also gives Claude your program's **runtime state** while it runs: where execution is paused, the call stack, the values of your variables, and the threads. With a panel toggle on, Claude can also **drive** the debugger. It steps, sets breakpoints, breaks at the throw site of an exception, attaches to a running process, and pauses a hung one. That lets it corner a bug by watching the code run, instead of guessing from the source.
+Most coding assistants only see your source. This extension also gives Claude your program's **runtime state** while it runs: where execution is paused, the call stack, the values of your variables, and the threads. Claude can also **drive** the debugger. It steps, sets breakpoints, breaks at the throw site of an exception, attaches to a running process, and pauses a hung one. That lets it corner a bug by watching the code run, instead of guessing from the source.
 
-The `claude` CLI does the agent work. The extension exposes Visual Studio's live debugger to it over the same localhost bridge that powers the diff and diagnostics features.
+The `claude` CLI does the agent work. The extension exposes Visual Studio's live debugger to it as a local MCP server, `vs-debug`.
 
 **Jump to:** [Watch it work](#watch-it-work) · [Attach to a running app](#break-at-the-throw-in-an-app-that-is-already-running) · [Deadlocks](#untangle-a-deadlock) · [Data breakpoints](#break-when-a-value-changes-data-breakpoints) · [Async call stacks](#follow-an-async-call-across-awaits) · [Memory leaks](#find-a-memory-leak)
 
-**Reference:** [How it reaches the model](#how-it-reaches-the-model-three-channels) · [Tool catalog](#tool-catalog) · [Safety](#safety) · [Limitations](#limitations) · [Fixtures to try](#fixtures-to-try)
+**Reference:** [How it reaches the model](#how-it-reaches-the-model) · [Tool catalog](#tool-catalog) · [Safety](#safety) · [Limitations](#limitations) · [Fixtures to try](#fixtures-to-try)
 
 ---
 
@@ -48,7 +48,7 @@ You cannot see that by reading the code. It only shows up when you watch `combo`
 
 ## What it can do
 
-Each of these is a real run against a fixture in [`demo/`](../demo). Open the `.sln`, turn on **Allow Claude to drive debugger** in the panel, and Launch Claude Code.
+Each of these is a real run against a fixture in [`demo/`](../demo). Open the `.sln` in Visual Studio and run `claude` in the fixture's folder.
 
 ### Break at the throw, in an app that is already running
 
@@ -147,31 +147,24 @@ These reads come from a ClrMD snapshot taken out of process, so they run against
 
 ---
 
-## How it reaches the model: three channels
+## How it reaches the model
 
-A new IDE tool would not help here. Claude Code's IDE-integration protocol, the WebSocket the CLI connects to, is curated by the CLI. It surfaces only `getDiagnostics` (and `executeCode`) to the model and drives the rest itself, so a tool added there would never be called. Debug state reaches the model through the two channels that the CLI does surface: a hook (push) and a user MCP server (pull). Driving rides the same MCP server behind a safety gate.
+Claude Code's IDE-integration protocol (the WebSocket `/ide` connects to) is curated by the CLI: it surfaces only `getDiagnostics` and `executeCode` to the model and drives the rest itself, so a debugger tool added there would never be called. This extension skips that channel entirely and exposes the debugger as an ordinary MCP server, which the CLI surfaces in full.
 
-### Push: break state at prompt time
-
-When you submit a prompt while the debugger is paused, a `UserPromptSubmit` hook (`vs-debug-context-hook.ps1`) POSTs to the bridge's `/debug-context` endpoint. The bridge reads the live break state via EnvDTE on the UI thread and hands it back, and the hook injects it as `additionalContext`. So Claude starts the turn already knowing where you are stopped and what the values are, with no tool call. It only fires in break mode, so a normal turn gets no noise.
-
-### Pull: inspect on demand (the `vs-debug` MCP server)
-
-The bridge exposes a second MCP server at `POST /mcp` on its localhost `HttpListener`. The CLI reaches it through a small stdio shim (`vs-mcp-shim.ps1`) registered in your workspace `.mcp.json` under the server name `vs-debug`. The shim finds the live bridge (the most-specific workspace lockfile whose port is listening) and proxies newline-delimited JSON-RPC to `/mcp`. The tools run in-proc in C# against EnvDTE. The shim is a dumb pipe.
-
-A user-registered `.mcp.json` server is the open plugin door, so the CLI surfaces all of its tools to the model. The IDE channel is a closed, curated protocol. Same dispatch code, a different relationship with the CLI.
+The extension serves MCP at `POST /mcp` on a localhost `HttpListener` (127.0.0.1 only, token-authenticated). The CLI reaches it through a small stdio shim, `~/.claude/vs-debug/vs-debug-shim.ps1`, registered once as the user-scope server `vs-debug`. The shim reads `~/.claude/vs-debug/<port>.lock`, picks the Visual Studio whose open solution best matches the CLI's working directory (any running one as a fallback), and proxies newline-delimited JSON-RPC to it. The tools run in-proc in C# against EnvDTE; the shim is a dumb pipe.
 
 ### Drive: control execution (same server, gated)
 
-Execution control sits behind the panel toggle **Allow Claude to drive debugger**, which is off by default, held in memory, and reset each Visual Studio session. When it is off, the drive tools refuse and do nothing. The hard part is that a drive command is asynchronous: you issue "step", then wait for the next break. An await-break engine handles it. It issues the EnvDTE command with `WaitForBreakOrEnd=false` so the UI thread never blocks, subscribes to `IVsDebuggerEvents.OnModeChange`, parks a `TaskCompletionSource`, and completes it on the next Break with the fresh snapshot, or on Design when the program ended. A 20 second timeout reports "still running" rather than hanging.
+Execution control sits behind **Allow Claude to drive the debugger** in the status popup (Tools > Claude Debug MCP Status). It is on by default and remembered between sessions; Claude Code's own per-tool permission prompt is the primary gate, and this is the kill switch. When it is off, the drive tools refuse and do nothing. The hard part is that a drive command is asynchronous: you issue "step", then wait for the next break. An await-break engine handles it. It issues the EnvDTE command with `WaitForBreakOrEnd=false` so the UI thread never blocks, subscribes to `IVsDebuggerEvents.OnModeChange`, parks a `TaskCompletionSource`, and completes it on the next Break with the fresh snapshot, or on Design when the program ended. A 20 second timeout reports "still running" rather than hanging.
 
 ```
-                 prompt-submit          on demand                control (gated)
-  Claude (CLI) --UserPromptSubmit-->  --stdio JSON-RPC--> vs-mcp-shim.ps1
-       |              hook                 (.mcp.json)            | HTTP POST /mcp
-       |                |                                        v
-       v                v                                  IdeWebSocketServer (127.0.0.1, auth)
-  /debug-context <------|                                        |
+  Claude (CLI) --stdio JSON-RPC--> vs-debug-shim.ps1 --HTTP POST /mcp--> McpHttpServer (127.0.0.1, auth)
+                                                                               |
+                                                                               v
+              DebuggerReader / DebuggerDriver  --EnvDTE / IVsDebugger-->  VS debugger (UI thread)
+```
+
+------|                                        |
        +--------------------------+-----------------------------+
                                   v
               DebuggerReader / DebuggerDriver  --EnvDTE / IVsDebugger-->  VS debugger (UI thread)
@@ -181,7 +174,7 @@ Execution control sits behind the panel toggle **Allow Claude to drive debugger*
 
 ## Tool catalog
 
-All tools live on the `vs-debug` MCP server and appear to the model as `mcp__vs-debug__*`. Reads are ungated. Drives require the "Allow Claude to drive debugger" toggle. Most need the debugger paused (break mode); otherwise the snapshot reports `{"mode":"run|design|unknown"}`.
+All tools live on the `vs-debug` MCP server and appear to the model as `mcp__vs-debug__*`. Reads are ungated. Drives require "Allow Claude to drive the debugger" (on by default). Most need the debugger paused (break mode); otherwise the snapshot reports `{"mode":"run|design|unknown"}`.
 
 ### Inspect (read-only, ungated)
 
@@ -232,15 +225,11 @@ Managed "break or trace when a value changes", a capability with no EnvDTE or au
 
 Multiple watches run at once, even several on the same value, via per-address fan-out. Caveats: instance fields only (statics, locals, and struct fields are unsupported by the engine); the debuggee must be .NET Core 3.0+ or .NET 5.0.3+ and x64; and the stop lands one statement after the write, because a data breakpoint fires once the write completes.
 
-### Push (no tool call)
-
-The `UserPromptSubmit` hook injects the current break state (stop location, call stack, current-frame args and locals) into context whenever you submit a prompt while paused.
-
 ---
 
 ## Safety
 
-- Reads are always allowed. Execution and breakpoint changes are opt-in via the panel toggle, which is off by default and resets every Visual Studio session, so model-controlled execution is never left on silently. This mirrors the "Run wild" toggle for edits.
+- Reads are always allowed. Execution and breakpoint changes can be switched off with the status popup's drive checkbox, and every tool call still goes through Claude Code's own permission prompt unless you allow it there.
 - Driving runs your code under model control. Continue and step execute your program, and `vs_evaluate` of a method call has side effects, since there is no read-only eval. That is why it is gated.
 - `vs_set_next_statement` is powerful and risky, because skipping initialization can corrupt state, so it is behind the gate too.
 
@@ -248,7 +237,7 @@ The `UserPromptSubmit` hook injects the current break state (stop location, call
 
 ## Limitations
 
-- **Managed (.NET) focus.** The debug reader targets the managed CLR debugger via EnvDTE. Native and C++ runtime inspection is not covered. C++ build diagnostics still flow through the Error List.
+- **Managed (.NET) focus.** The debug reader targets the managed CLR debugger via EnvDTE. Native and C++ runtime inspection is not covered.
 - **`vs_evaluate` has no LINQ or lambdas.** Visual Studio's expression evaluator rejects `list.Select(x => …)`. Prefer indexing, field and property access, `.Count`, `.Sum()`, `object.ReferenceEquals(a, b)`, and arithmetic.
 - **Lock ownership is exact for monitors, partial beyond them.** `vs_wait_chains` gives exact monitor ownership (every held monitor's holder and waiter count, plus the `deadlockSuspects` cycle members), and `vs_threads` adds the explicit `lockOwnerThreadId` edge, parsed from Concord's `[Waiting on lock owned by Thread 0x..]` annotation. What is still not decoded: which object a blocked thread is waiting to enter (ClrMD cannot read the `Monitor.Enter` argument, so cross-reference the two tools), and non-monitor primitives (`SemaphoreSlim`, `ReaderWriterLockSlim`) beyond their managed fields.
 - **Async call stacks: the logical chain is reconstructed, hoisted locals are not.** `vs_async_stacks` rebuilds the logical `InnerAsync ← ComputeAsync ← RunAsync` chain from the state-machine boxes, each with its await-point `state`. What remains: a suspended async caller's hoisted locals are not reachable by source name, and which awaitable each frame is parked on is not decoded, only the await index.
@@ -262,9 +251,9 @@ The `UserPromptSubmit` hook injects the current break state (stop location, call
 
 ## Fixtures to try
 
-Nine runnable fixtures under [`demo/`](../demo) exercise the debugger. Open the `.sln`, turn on the drive toggle where noted, and Launch Claude Code.
+Nine runnable fixtures under [`demo/`](../demo) exercise the debugger. Open the `.sln` in Visual Studio and run `claude` in the fixture's folder.
 
-- **`CheckoutBuggy`** is an integer-division discount bug. The push hook lets Claude diagnose it from the paused locals, no driving needed.
+- **`CheckoutBuggy`** is an integer-division discount bug. Claude can diagnose it from the paused locals (`vs_debug_state`), no driving needed.
 - **`SignalScan`** is an aliasing bug you can confirm at one paused point with `vs_evaluate('object.ReferenceEquals(windows[0], windows[2])')`. No bug-revealing comments.
 - **`ComboScore`** is a missing state reset that is invisible in the final output. It forces stepping to watch `combo` across the bad round (the walkthrough above).
 - **`NullOrigin`** throws a `NullReferenceException` deep and swallows it in a generic catch. `vs_break_on_thrown` lands you at the throw site, not the catch.
@@ -278,7 +267,6 @@ Nine runnable fixtures under [`demo/`](../demo) exercise the debugger. Open the 
 
 ## What is next
 
-- **Test-driven debugging loop.** Run the tests, and on a failure set a breakpoint at the fault, start that test under the debugger, and drive to the failure. This shipped as the test integration; see [`TESTING.md`](TESTING.md).
 - **Native tracepoints**, so Claude can add log-and-continue probes without editing the file.
 - **CPU and memory profiling** against the debuggee: live CPU and allocation counters, top hot methods, and top types by size.
 - **Per-frame source** via `IDebugStackFrame2.GetDocumentContext`.

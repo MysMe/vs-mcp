@@ -5,13 +5,13 @@ namespace ClaudeCodeVs.Protocol;
 
 /// <summary>
 /// Speaks MCP over JSON-RPC 2.0. Handles one inbound message at a time and returns the JSON to
-/// send back (or null for notifications / fire-and-forget). The transport (WS) owns reading/writing
-/// bytes; this class owns the protocol semantics. See build-plan.md §3 (MCP wire protocol).
+/// send back (or null for notifications / fire-and-forget). The transport (<see cref="McpHttpServer"/>)
+/// owns reading/writing bytes; this class owns the protocol semantics.
 /// Uses Newtonsoft.Json (VS ships it with binding redirects for in-proc extensions).
 /// </summary>
 public sealed class McpServer
 {
-    private const string ServerName = "claude-code-vs";
+    private const string ServerName = "vs-debug";
     private const string ServerVersion = "0.1.0";
     // Echoed back to the client when it offers one; CLI 2.1.x sends "2025-11-25".
     private const string DefaultProtocolVersion = "2025-06-18";
@@ -19,6 +19,9 @@ public sealed class McpServer
     private readonly ToolRegistry _tools;
 
     public McpServer(ToolRegistry tools) => _tools = tools;
+
+    /// <summary>Raised with the tool name on every tools/call, before the tool runs (status display).</summary>
+    public event Action<string>? ToolCalled;
 
     /// <summary>Process one inbound frame. Returns response JSON to send, or null if no reply is due.</summary>
     public async Task<string?> HandleAsync(string json, CancellationToken ct)
@@ -101,6 +104,7 @@ public sealed class McpServer
             return ToolResult($"unknown tool: {name}", isError: true);
 
         JToken args = @params?["arguments"] as JObject ?? new JObject();
+        try { ToolCalled?.Invoke(name); } catch { /* observers must never fail a call */ }
 
         try
         {

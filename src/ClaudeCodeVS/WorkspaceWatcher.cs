@@ -1,3 +1,5 @@
+using System;
+using System.IO;
 using ClaudeCodeVs.Protocol;
 using Microsoft.VisualStudio;
 using Microsoft.VisualStudio.Shell;
@@ -6,13 +8,12 @@ using Microsoft.VisualStudio.Shell.Interop;
 namespace ClaudeCodeVs;
 
 /// <summary>
-/// Keeps the lockfile's workspaceFolders in sync with what's open in VS. The bridge starts at
-/// shell-init (before any solution/folder is open), so the lockfile initially reports no workspace and
-/// the CLI's /ide can't match it to the current directory. When a solution opens (IVsSolutionEvents)
-/// or a folder opens in Open-Folder mode (IVsSolutionEvents7), we rewrite the lockfile so /ide matches.
-/// All callbacks fire on the UI thread.
+/// Keeps the lockfile's workspaceFolders (what the shim matches the CLI's cwd against) and the status
+/// popup's project name in sync with what's open in VS. The bridge starts at shell-init, before any
+/// solution/folder is open, so this picks up solution opens (IVsSolutionEvents), Open-Folder mode
+/// (IVsSolutionEvents7), and closes. All callbacks fire on the UI thread.
 /// </summary>
-internal sealed class WorkspaceWatcher : IVsSolutionEvents, IVsSolutionEvents7, System.IDisposable
+internal sealed class WorkspaceWatcher : IVsSolutionEvents, IVsSolutionEvents7, IDisposable
 {
     private readonly IVsSolution _solution;
     private readonly Lockfile _lockfile;
@@ -34,34 +35,25 @@ internal sealed class WorkspaceWatcher : IVsSolutionEvents, IVsSolutionEvents7, 
     private void RefreshFromSolutionInfo()
     {
         ThreadHelper.ThrowIfNotOnUIThread();
-        if (_solution.GetSolutionInfo(out string dir, out _, out _) == VSConstants.S_OK && !string.IsNullOrEmpty(dir))
-            SetWorkspace(dir);
+        if (_solution.GetSolutionInfo(out string dir, out string file, out _) == VSConstants.S_OK && !string.IsNullOrEmpty(dir))
+            SetWorkspace(dir, string.IsNullOrEmpty(file) ? null : Path.GetFileNameWithoutExtension(file));
     }
 
-    private void SetWorkspace(string dir)
+    private void SetWorkspace(string dir, string? name)
     {
         var root = dir.TrimEnd('\\');
-        // Only a REAL change resets: this path also runs at extension load and on any repeat
-        // open-solution event, and silently binning a tray of staged screenshots because VS re-raised
-        // an event for the workspace we are already on would be its own bug.
-        bool changed = !string.Equals(Ui.BridgeStatus.Workspace, root, System.StringComparison.OrdinalIgnoreCase);
+        if (string.Equals(Ui.BridgeStatus.Workspace, root, StringComparison.OrdinalIgnoreCase)
+            && (name is null || name == Ui.BridgeStatus.WorkspaceName))
+            return; // VS re-raised an event for the workspace we're already on
         _lockfile.UpdateWorkspaceFolders(new[] { root });
-        Ui.BridgeStatus.SetWorkspace(root); // reflect in the dockable panel too
-        if (changed) ResetWorkspaceScopedState();
+        Ui.BridgeStatus.SetWorkspace(root, name ?? Path.GetFileName(root));
     }
 
-    /// <summary>
-    /// Drop the attach tray when the workspace changes. A chip is a path scoped to the workspace it was
-    /// staged from - workspace-relative mention, staging folder under that workspace's
-    /// <c>.claude\attachments</c> - so carrying it into the next solution would push references the new
-    /// session can't resolve. Same semantics as the panel's Clear button: staged copies are deleted,
-    /// in-place originals are only unlisted.
-    /// </summary>
-    private static void ResetWorkspaceScopedState()
+    private void ClearWorkspace()
     {
-        if (Attachments.AttachmentService.Snapshot().Count == 0) return;
-        Attachments.AttachmentService.Clear();
-        Log.Info("attach: cleared the tray - the open solution changed.");
+        if (Ui.BridgeStatus.Workspace is null) return;
+        _lockfile.UpdateWorkspaceFolders(Array.Empty<string>());
+        Ui.BridgeStatus.SetWorkspace(null, null);
     }
 
     // ---- IVsSolutionEvents (classic solutions) ----
@@ -81,17 +73,15 @@ internal sealed class WorkspaceWatcher : IVsSolutionEvents, IVsSolutionEvents7, 
     public int OnBeforeCloseSolution(object pUnkReserved) => VSConstants.S_OK;
     public int OnAfterCloseSolution(object pUnkReserved)
     {
-        // Closing is the other half of "the workspace changed" - opening the next solution comes through
-        // SetWorkspace, but File > Close Solution leaves VS with no workspace at all.
-        ResetWorkspaceScopedState();
+        ClearWorkspace();
         return VSConstants.S_OK;
     }
 
     // ---- IVsSolutionEvents7 (Open Folder mode) ----
-    public void OnAfterOpenFolder(string folderPath) => SetWorkspace(folderPath);
+    public void OnAfterOpenFolder(string folderPath) => SetWorkspace(folderPath, null);
     public void OnBeforeCloseFolder(string folderPath) { }
     public void OnQueryCloseFolder(string folderPath, ref int pfCancel) { }
-    public void OnAfterCloseFolder(string folderPath) => ResetWorkspaceScopedState();
+    public void OnAfterCloseFolder(string folderPath) => ClearWorkspace();
     public void OnAfterLoadAllDeferredProjects() { }
 
     public void Dispose()

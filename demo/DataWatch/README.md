@@ -34,8 +34,8 @@ wherever that write lives**. That's the whole point: you don't need to know wher
 ## Run it
 
 1. Open **`demo/DataWatch/DataWatch.slnx`** in VS 2026 (**Debug**, x64, so symbols are present).
-2. Claude Code panel → tick **Allow Claude to drive debugger** (data breakpoints arm from a paused,
-   driven session) → **Launch Claude Code**.
+2. Run `claude` in this folder (data breakpoints arm from a paused, driven session, so keep
+   "Allow Claude to drive the debugger" on).
 3. Put a breakpoint on the marked line in `Main` (the `Console.WriteLine($"Pricing order …")` line) and
    press **F5**. Execution stops there with `order` constructed and in scope — the point you arm from.
 

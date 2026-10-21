@@ -21,7 +21,7 @@ continuation, not the original `Main` thread. That's exactly the case where asyn
 
 1. Open **`demo/AsyncTrace/AsyncTrace.sln`** in VS 2026 (Debug build).
 2. Set a breakpoint on the `return blended;` line in `InnerAsync` (marked in [Program.cs](Program.cs)).
-3. Claude Code panel → **Launch Claude Code**. Reads are ungated; no drive toggle needed (unless you want
+3. Run `claude` in this folder. Reads are ungated; no driving needed (unless you want
    Claude to `vs_continue` between iterations).
 4. Press **F5**. The breakpoint hits once per item (4 times).
 
@@ -48,7 +48,7 @@ Final output: `total = 74`. The 3rd hit (`n=8, soFar=21`) is the most useful to 
 ## PASS / characterize
 
 **PASS — current async frame (this must work):**
-- `vs_debug_state` / the push hook reports `stoppedAt` in `InnerAsync`, with `args` `n` + `soFar` and
+- `vs_debug_state` reports `stoppedAt` in `InnerAsync`, with `args` `n` + `soFar` and
   locals `scaled` + `blended` reading the **correct post-await values** from the table above (e.g. on the
   3rd hit: `n=8, soFar=21, scaled=16, blended=26`). This proves the debugger maps the state machine's
   hoisted fields back to source names across the await.

@@ -35,7 +35,7 @@ Sanity check in another terminal: `curl http://localhost:5179/quote/101` → `{"
 ## 2. Set up VS
 
 1. Open **`demo/WebQuote/WebQuote.sln`** in VS 2026 (so VS has the source + symbols for the break).
-2. Claude Code panel → tick **Allow Claude to drive debugger** → **Launch Claude Code**.
+2. Run `claude` in this folder.
 
 ## 3a. Let Claude drive the whole loop (the headline)
 
@@ -63,7 +63,7 @@ Customer — a cause the 500 alone never revealed.
 
 If you'd rather trigger it yourself (mirrors a UI action Claude can't perform): attach + arm first via
 Claude, then in a terminal `curl http://localhost:5179/quote/103` (it will hang at the break). The
-prompt-submit hook injects the live break state, so just ask Claude **"it's paused now — what's wrong?"**
+vs-debug tools read the live break state, so just ask Claude **"it's paused now — what's wrong?"**
 
 ## 4. Bonus checks (cover the rest of the new surface)
 

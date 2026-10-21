@@ -10,7 +10,7 @@ namespace ClaudeCodeVs.Debugging;
 /// <summary>
 /// Reads the live Visual Studio debugger state (break location, call stack, locals/arguments) via the
 /// EnvDTE automation model and shapes it as JSON for the UserPromptSubmit hook to inject into Claude's
-/// context. This is the debug analog of <see cref="ClaudeCodeVs.Editor.ErrorListReader"/>: VS already
+/// context. This is the debug analog of the Error List reader upstream: VS already
 /// has all of this; we just expose it so the model can reason about runtime values, not just source.
 ///
 /// EnvDTE is UI-thread bound and throws readily while the debugger transitions, so every access is

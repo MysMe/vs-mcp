@@ -1,180 +1,36 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Command table for the "Launch Claude Code" command. Adds a button to the Tools menu that calls
-  BridgeHost.LaunchClaudeAsync (env vars + working dir = workspace, so the CLI auto-connects).
+  Command table: one Tools-menu entry that opens the status popup.
 -->
 <CommandTable xmlns="http://schemas.microsoft.com/VisualStudio/2005-10-18/CommandTable" xmlns:xs="http://www.w3.org/2001/XMLSchema">
   <Extern href="stdidcmd.h" />
   <Extern href="vsshlids.h" />
   <Include href="KnownImageIds.vsct" />
 
-  <Commands package="guidClaudeCodeVsPackage">
+  <Commands package="guidVsDebugMcpPackage">
     <Groups>
-      <Group guid="guidClaudeCmdSet" id="ClaudeMenuGroup" priority="0x0600">
+      <Group guid="guidVsDebugMcpCmdSet" id="VsDebugMcpMenuGroup" priority="0x0600">
         <Parent guid="guidSHLMainMenu" id="IDM_VS_MENU_TOOLS" />
-      </Group>
-      <Group guid="guidClaudeCmdSet" id="ClaudeCtxMenuGroup" priority="0x0100">
-        <Parent guid="guidClaudeCmdSet" id="ClaudeCtxMenu" />
-      </Group>
-      <!-- Edit actions (Fix Errors / Generate Documentation / Add Comments / Fix This Test) in their
-           own group: the group boundary renders as a separator between "give Claude context" above
-           and "ask Claude to change the file" below. -->
-      <Group guid="guidClaudeCmdSet" id="ClaudeCtxEditGroup" priority="0x0200">
-        <Parent guid="guidClaudeCmdSet" id="ClaudeCtxMenu" />
-      </Group>
-      <!-- The Menu below can't be parented directly to a menu ID - it needs a Group in between,
-           same as ClaudeMenuGroup does for the Tools menu placement above. MID priority on purpose:
-           the code editor's right-click menu is the most muscle-memory-sensitive surface in VS, so
-           the submenu sits below the navigation block (Go To Definition etc.), roughly where
-           Copilot's entries live - never at the very top. -->
-      <Group guid="guidClaudeCmdSet" id="ClaudeCtxTopGroup" priority="0x0200">
-        <Parent guid="guidSHLMainMenu" id="IDM_VS_CTXT_CODEWIN" />
-      </Group>
-      <!-- Solution Explorer. One group, placed into every node menu the action makes sense on (the
-           extra placements are in CommandPlacements below): a file, a folder, and a multi-selection
-           spanning projects. Deliberately NOT on project/solution nodes - "add this whole project"
-           is a different ask. One entry, not a flyout: a single command doesn't earn a submenu. -->
-      <Group guid="guidClaudeCmdSet" id="ClaudeSlnCtxGroup" priority="0x0600">
-        <Parent guid="guidSHLMainMenu" id="IDM_VS_CTXT_ITEMNODE" />
       </Group>
     </Groups>
 
-    <!-- Editor right-click submenu: "Claude Code" -> Explain / Add to Chat. Named for the brand,
-         matching the Tools and View > Other Windows entries (one brand, not a third variant). -->
-    <Menus>
-      <Menu guid="guidClaudeCmdSet" id="ClaudeCtxMenu" priority="0x0001" type="Menu">
-        <Parent guid="guidClaudeCmdSet" id="ClaudeCtxTopGroup" />
-        <Strings>
-          <ButtonText>Claude Code</ButtonText>
-          <CommandName>Claude Code</CommandName>
-        </Strings>
-      </Menu>
-    </Menus>
-
     <Buttons>
-      <Button guid="guidClaudeCmdSet" id="LaunchClaudeId" priority="0x0100" type="Button">
-        <Parent guid="guidClaudeCmdSet" id="ClaudeMenuGroup" />
-        <Icon guid="ImageCatalogGuid" id="Run" />
+      <Button guid="guidVsDebugMcpCmdSet" id="ShowStatusId" priority="0x0100" type="Button">
+        <Parent guid="guidVsDebugMcpCmdSet" id="VsDebugMcpMenuGroup" />
+        <Icon guid="ImageCatalogGuid" id="StatusInformation" />
         <CommandFlag>IconIsMoniker</CommandFlag>
         <Strings>
-          <ButtonText>Launch Claude Code</ButtonText>
-        </Strings>
-      </Button>
-      <!-- The panel-opener lives under View > Other Windows, where tool windows belong. It used to sit
-           in Tools next to Launch (two similar entries confused users, issue #17), and the Other Windows
-           entry relied on VS AUTO-listing registered tool windows - which proved unreliable across
-           in-place upgrades (gone on 18.8.2). An explicit placement is guaranteed. -->
-      <Button guid="guidClaudeCmdSet" id="ShowPanelId" priority="0x0100" type="Button">
-        <Parent guid="guidSHLMainMenu" id="IDG_VS_WNDO_OTRWNDWS1" />
-        <Icon guid="ImageCatalogGuid" id="Comment" />
-        <CommandFlag>IconIsMoniker</CommandFlag>
-        <Strings>
-          <ButtonText>Claude Code</ButtonText>
-        </Strings>
-      </Button>
-      <Button guid="guidClaudeCmdSet" id="ExplainId" priority="0x0100" type="Button">
-        <Parent guid="guidClaudeCmdSet" id="ClaudeCtxMenuGroup" />
-        <Icon guid="ImageCatalogGuid" id="StatusHelp" />
-        <CommandFlag>IconIsMoniker</CommandFlag>
-        <Strings>
-          <ButtonText>Explain</ButtonText>
-        </Strings>
-      </Button>
-      <Button guid="guidClaudeCmdSet" id="AddToChatId" priority="0x0110" type="Button">
-        <Parent guid="guidClaudeCmdSet" id="ClaudeCtxMenuGroup" />
-        <Icon guid="ImageCatalogGuid" id="Comment" />
-        <CommandFlag>IconIsMoniker</CommandFlag>
-        <Strings>
-          <ButtonText>Add to Chat</ButtonText>
-        </Strings>
-      </Button>
-      <Button guid="guidClaudeCmdSet" id="FixErrorsId" priority="0x0100" type="Button">
-        <Parent guid="guidClaudeCmdSet" id="ClaudeCtxEditGroup" />
-        <Icon guid="ImageCatalogGuid" id="Repair" />
-        <CommandFlag>IconIsMoniker</CommandFlag>
-        <Strings>
-          <ButtonText>Fix Errors</ButtonText>
-        </Strings>
-      </Button>
-      <Button guid="guidClaudeCmdSet" id="GenerateDocsId" priority="0x0110" type="Button">
-        <Parent guid="guidClaudeCmdSet" id="ClaudeCtxEditGroup" />
-        <Icon guid="ImageCatalogGuid" id="Document" />
-        <CommandFlag>IconIsMoniker</CommandFlag>
-        <Strings>
-          <ButtonText>Generate Documentation</ButtonText>
-        </Strings>
-      </Button>
-      <Button guid="guidClaudeCmdSet" id="AddCommentsId" priority="0x0120" type="Button">
-        <Parent guid="guidClaudeCmdSet" id="ClaudeCtxEditGroup" />
-        <Icon guid="ImageCatalogGuid" id="AddComment" />
-        <CommandFlag>IconIsMoniker</CommandFlag>
-        <Strings>
-          <ButtonText>Add Comments</ButtonText>
-        </Strings>
-      </Button>
-      <!-- Hidden outside test-looking files: BeforeQueryStatus (a filename heuristic - Roslyn is too
-           slow for menu-open) flips Visible, which needs DynamicVisibility. -->
-      <Button guid="guidClaudeCmdSet" id="FixTestId" priority="0x0130" type="Button">
-        <Parent guid="guidClaudeCmdSet" id="ClaudeCtxEditGroup" />
-        <Icon guid="ImageCatalogGuid" id="Test" />
-        <CommandFlag>IconIsMoniker</CommandFlag>
-        <CommandFlag>DynamicVisibility</CommandFlag>
-        <CommandFlag>DefaultInvisible</CommandFlag>
-        <Strings>
-          <ButtonText>Fix This Test</ButtonText>
-        </Strings>
-      </Button>
-      <!-- Solution Explorer's entry. -->
-      <Button guid="guidClaudeCmdSet" id="AddItemsToChatId" priority="0x0100" type="Button">
-        <Parent guid="guidClaudeCmdSet" id="ClaudeSlnCtxGroup" />
-        <Icon guid="ImageCatalogGuid" id="Comment" />
-        <CommandFlag>IconIsMoniker</CommandFlag>
-        <Strings>
-          <ButtonText>Add to Chat</ButtonText>
+          <ButtonText>Claude Debug MCP Status...</ButtonText>
         </Strings>
       </Button>
     </Buttons>
   </Commands>
 
-  <!-- The Solution Explorer group's other homes: folder nodes, and multi-selections of items across
-       projects (VS switches menu ID by what's selected, so one placement per shape). -->
-  <CommandPlacements>
-    <!-- Lower priority in the folder menu on purpose: at 0x0600 it sorted below Properties, i.e. dead
-         last, while the file menu puts it mid-list. 0x0300 lines the two menus up. -->
-    <CommandPlacement guid="guidClaudeCmdSet" id="ClaudeSlnCtxGroup" priority="0x0300">
-      <Parent guid="guidSHLMainMenu" id="IDM_VS_CTXT_FOLDERNODE" />
-    </CommandPlacement>
-    <CommandPlacement guid="guidClaudeCmdSet" id="ClaudeSlnCtxGroup" priority="0x0600">
-      <Parent guid="guidSHLMainMenu" id="IDM_VS_CTXT_XPROJ_MULTIITEM" />
-    </CommandPlacement>
-  </CommandPlacements>
-
-  <!-- Alt+K on Add to Chat, text-editor scope: the same muscle memory as the official VS Code
-       extension's "Insert @-Mention Reference" (Alt+K there too). -->
-  <KeyBindings>
-    <KeyBinding guid="guidClaudeCmdSet" id="AddToChatId" editor="guidTextEditor" mod1="Alt" key1="K" />
-  </KeyBindings>
-
   <Symbols>
-    <GuidSymbol name="guidClaudeCodeVsPackage" value="{d9032717-8a83-4ab5-9b63-2fe9d9a78481}" />
-    <GuidSymbol name="guidClaudeCmdSet" value="{9495bbbb-756d-4dc4-807d-1408d50e7d33}">
-      <IDSymbol name="ClaudeMenuGroup" value="0x1020" />
-      <IDSymbol name="ClaudeCtxMenu" value="0x1021" />
-      <IDSymbol name="ClaudeCtxMenuGroup" value="0x1022" />
-      <IDSymbol name="ClaudeCtxTopGroup" value="0x1023" />
-      <IDSymbol name="ClaudeCtxEditGroup" value="0x1024" />
-      <IDSymbol name="ClaudeSlnCtxGroup" value="0x1025" />
-      <IDSymbol name="LaunchClaudeId" value="0x0100" />
-      <IDSymbol name="ShowPanelId" value="0x0101" />
-      <IDSymbol name="ExplainId" value="0x0102" />
-      <IDSymbol name="AddToChatId" value="0x0103" />
-      <IDSymbol name="FixErrorsId" value="0x0104" />
-      <IDSymbol name="GenerateDocsId" value="0x0105" />
-      <IDSymbol name="AddCommentsId" value="0x0106" />
-      <IDSymbol name="FixTestId" value="0x0107" />
-      <IDSymbol name="AddItemsToChatId" value="0x0108" />
+    <GuidSymbol name="guidVsDebugMcpPackage" value="{798e095b-5e74-4a07-bdf0-500d897ef746}" />
+    <GuidSymbol name="guidVsDebugMcpCmdSet" value="{539df883-955a-4653-b639-0999a0300b40}">
+      <IDSymbol name="VsDebugMcpMenuGroup" value="0x1020" />
+      <IDSymbol name="ShowStatusId" value="0x0100" />
     </GuidSymbol>
-    <!-- GUID_TextEditorFactory: scopes the Alt+K binding to the text editor. -->
-    <GuidSymbol name="guidTextEditor" value="{8B382828-6202-11D1-8870-0000F87579D2}" />
   </Symbols>
 </CommandTable>

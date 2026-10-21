@@ -26,8 +26,8 @@ the second, so the cycle forms on **every** run (no flaky interleaving).
 ## Run it
 
 1. Open **`demo/LockJam/LockJam.sln`** in VS 2026 (Debug build, so symbols are present).
-2. Claude Code panel → tick **Allow Claude to drive debugger** (needed so Claude can pause it with
-   `vs_break_all`) → **Launch Claude Code**.
+2. Run `claude` in this folder (driving must be allowed so Claude can pause it with
+   `vs_break_all`).
 3. Press **F5** (or have Claude `vs_start_debugging`). The app wedges almost immediately and **hangs** — it
    does **not** self-break, so pausing it is the test.
 

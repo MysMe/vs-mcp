@@ -47,7 +47,7 @@ namespace DataWatch
             // >>> DEMO: put a breakpoint on the next line and press F5. `order` is constructed and in
             // >>> scope here, so you can arm vs_set_data_breakpoint("order.TotalCents") while paused,
             // >>> then continue to catch the writes. (Data breakpoints arm from a paused session; the
-            // >>> "Allow Claude to drive debugger" toggle must be ON.)
+            // >>> "Allow Claude to drive the debugger" must be ON.)
             Console.WriteLine($"Pricing order {order.Id}...");
 
             AddItems(order);            // TotalCents: 0 -> 30000 -> 42000 -> 54000   (three line items)

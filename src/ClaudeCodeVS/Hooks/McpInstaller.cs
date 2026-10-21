@@ -1,105 +1,106 @@
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using ClaudeCodeVs.Protocol;
-using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
 namespace ClaudeCodeVs.Hooks;
 
 /// <summary>
-/// Registers the Phase 2 debug PULL channel as a project MCP server. Writes the embedded stdio shim into
-/// the workspace's .claude/ folder and upserts an entry into the workspace .mcp.json so the CLI launches
-/// it as an MCP server. The shim then discovers the live VS bridge and proxies JSON-RPC to POST /mcp,
-/// where the real vs_* debug tools run (in-proc, EnvDTE-backed). Called from Launch alongside the hook
-/// installer. Best-effort; idempotent; never throws into the launch path.
+/// Puts the stdio shim somewhere stable and registers it with Claude Code as the user-scope MCP server
+/// <c>vs-debug</c>. The shim is (re)written to <c>~/.claude/vs-debug/vs-debug-shim.ps1</c> at every startup
+/// (the extension's own install folder changes with each version, so it can't be referenced directly).
 ///
-/// Note: a project-scoped .mcp.json makes the CLI prompt once to trust the server. That's expected.
+/// Registration is a one-time, explicit step (the status popup's Register button, or the same command
+/// by hand) - we never edit <c>~/.claude.json</c> ourselves; the CLI owns that file and rewrites it
+/// concurrently. User scope means every Claude session gets the tools without touching any repo.
 /// </summary>
 internal static class McpInstaller
 {
-    private const string ShimScript = "vs-mcp-shim.ps1";
+    public const string ServerName = "vs-debug";
+    private const string ShimScript = "vs-debug-shim.ps1";
 
-    // The two pull-channel MCP servers, both backed by the same stdio shim (different -Route → different
-    // bridge endpoint). vs-debug stays byte-identical to its original entry (no extra args → shim default
-    // /mcp); vs-semantic adds -Route /mcp-semantic for the Roslyn code-navigation tools.
-    private static readonly (string Name, string[] ExtraArgs)[] Servers =
-    {
-        ("vs-debug", new string[0]),
-        ("vs-semantic", new[] { "-Route", "/mcp-semantic" }),
-    };
+    public static string ShimPath => Path.Combine(Lockfile.BridgeDir, ShimScript);
 
-    public static void EnsureInstalled(string workspaceRoot)
+    /// <summary>The <c>claude mcp add</c> arguments that register the shim (user scope).</summary>
+    public static string RegisterArgs =>
+        $"mcp add --scope user {ServerName} -- powershell -NoProfile -ExecutionPolicy Bypass -File \"{ShimPath}\"";
+
+    /// <summary>The full command, for copy/paste into cmd or a bash shell.</summary>
+    public static string RegisterCommand => "claude " + RegisterArgs;
+
+    /// <summary>Write the embedded shim to its stable location. Best-effort; never throws.</summary>
+    public static void EnsureShim()
     {
         try
         {
-            var claudeDir = Path.Combine(workspaceRoot, ".claude");
-            Directory.CreateDirectory(claudeDir);
-
-            // 1) (Over)write the shim from the embedded copy, so updates ship with the extension -
-            //    unless the user took ownership by removing the marker line (issue #17).
-            ManagedScripts.WriteIfManaged(Path.Combine(claudeDir, ShimScript), ReadEmbeddedScript(ShimScript));
-
-            // 2) Upsert the server entry into <workspace>/.mcp.json, preserving any other servers. The
-            //    relative -File path resolves against the CLI's cwd (the workspace root), matching where
-            //    the shim was written. We always (re)write OUR entry so command/args updates ship, but
-            //    leave the rest of the file untouched.
-            var mcpPath = Path.Combine(workspaceRoot, ".mcp.json");
-            JObject root;
-            if (File.Exists(mcpPath))
-            {
-                try { root = JObject.Parse(File.ReadAllText(mcpPath)); }
-                catch (Exception e)
-                {
-                    Log.Warn($"mcp: couldn't parse {mcpPath}; leaving it alone ({e.Message})");
-                    return;
-                }
-            }
-            else
-            {
-                root = new JObject();
-            }
-
-            // Only assign when creating: re-assigning an already-parented JToken makes Json.NET CLONE it
-            // into the parent, detaching this local reference - upserts would then never reach the file
-            // (same bug as the hook installer; matters for users upgrading with an existing .mcp.json).
-            if (root["mcpServers"] is not JObject servers)
-            {
-                servers = new JObject();
-                root["mcpServers"] = servers;
-            }
-
-            bool changed = false;
-            foreach (var (name, extraArgs) in Servers)
-            {
-                var argv = new JArray("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $".claude/{ShimScript}");
-                foreach (var a in extraArgs) argv.Add(a);
-                var desired = new JObject
-                {
-                    ["type"] = "stdio",
-                    ["command"] = "powershell",
-                    ["args"] = argv,
-                };
-
-                if (JToken.DeepEquals(servers[name], desired)) continue;
-                servers[name] = desired;
-                changed = true;
-            }
-
-            if (!changed)
-            {
-                Log.Info($"mcp: 'vs-debug' + 'vs-semantic' already registered in {mcpPath}; nothing to change");
-                return;
-            }
-
-            File.WriteAllText(mcpPath, root.ToString(Formatting.Indented));
-            Log.Info($"mcp: registered 'vs-debug' + 'vs-semantic' MCP servers in {mcpPath} (pull channels)");
+            Directory.CreateDirectory(Lockfile.BridgeDir);
+            ManagedScripts.WriteIfManaged(ShimPath, ReadEmbeddedScript(ShimScript));
         }
         catch (Exception e)
         {
-            Log.Warn($"mcp install failed: {e.Message}");
+            Log.Warn($"mcp: writing the shim failed: {e.Message}");
         }
     }
+
+    /// <summary>
+    /// True if <c>~/.claude.json</c> has a user-scope <c>vs-debug</c> server. Read-only peek; a project
+    /// <c>.mcp.json</c> registration isn't detected (and isn't needed).
+    /// </summary>
+    public static bool IsRegistered()
+    {
+        try
+        {
+            var path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".claude.json");
+            if (!File.Exists(path)) return false;
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var reader = new StreamReader(stream);
+            var root = JObject.Parse(reader.ReadToEnd());
+            return root["mcpServers"]?[ServerName] is JObject;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Run <c>claude mcp add</c> (via cmd.exe, so both the native claude.exe and an npm claude.cmd
+    /// resolve). Returns (success, combined output). Runs off the UI thread.
+    /// </summary>
+    public static Task<(bool ok, string output)> RegisterAsync() => Task.Run(() =>
+    {
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = "cmd.exe",
+                Arguments = "/d /s /c \"claude " + RegisterArgs + "\"",
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            };
+            using var p = Process.Start(psi)!;
+            var stdout = p.StandardOutput.ReadToEndAsync();
+            var stderr = p.StandardError.ReadToEndAsync();
+            if (!p.WaitForExit(30000))
+            {
+                try { p.Kill(); } catch { }
+                return (false, "claude mcp add timed out");
+            }
+            var output = (stdout.Result + stderr.Result).Trim();
+            Log.Info($"mcp: `{RegisterCommand}` exited {p.ExitCode}: {output}");
+            return (p.ExitCode == 0, output);
+        }
+        catch (Exception e)
+        {
+            Log.Warn($"mcp: registration failed: {e.Message}");
+            return (false, e.Message);
+        }
+    });
 
     private static string ReadEmbeddedScript(string scriptFileName)
     {

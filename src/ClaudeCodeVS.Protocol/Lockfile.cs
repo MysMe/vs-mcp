@@ -1,16 +1,15 @@
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
-using System.Runtime.InteropServices;
 using Newtonsoft.Json;
 
 namespace ClaudeCodeVs.Protocol;
 
 /// <summary>
-/// The lockfile is how the CLI discovers that "an IDE is here". It lives at
-/// <c>~/.claude/ide/&lt;port&gt;.lock</c> - and the filename IS the port the WS server listens on.
-/// See build-plan.md §3. Ported verbatim from the Phase 0 spike with two net48 fixes
-/// (<c>Environment.ProcessId</c> is .NET 5+).
+/// The lockfile is how the stdio shim finds this VS instance's MCP endpoint. It lives at
+/// <c>~/.claude/vs-debug/&lt;port&gt;.lock</c> - the filename IS the port the HTTP server listens on.
+/// Deliberately NOT under <c>~/.claude/ide/</c>: that directory is what the CLI's /ide scans for
+/// WebSocket IDE bridges, and this extension doesn't speak the IDE WebSocket protocol.
 /// </summary>
 public sealed class Lockfile
 {
@@ -28,23 +27,24 @@ public sealed class Lockfile
         _doc = doc;
     }
 
-    private static string IdeDir =>
+    /// <summary>Where lockfiles (and the shim script) live: <c>~/.claude/vs-debug</c>.</summary>
+    public static string BridgeDir =>
         System.IO.Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            ".claude", "ide");
+            ".claude", "vs-debug");
 
     /// <summary>
     /// Pick a free loopback port, then write the lockfile for it. We bind a throwaway
     /// TcpListener to port 0 (OS assigns a free port), read the assignment, and release it.
-    /// There's a tiny TOCTOU window before the WS server grabs the port - acceptable in practice.
+    /// There's a tiny TOCTOU window before the HTTP server grabs the port - acceptable in practice.
     /// </summary>
     public static Lockfile CreateForFreePort(IReadOnlyList<string> workspaceFolders)
     {
-        Directory.CreateDirectory(IdeDir);
+        Directory.CreateDirectory(BridgeDir);
 
         int port = PickFreePort();
         var token = Guid.NewGuid().ToString();
-        var path = System.IO.Path.Combine(IdeDir, $"{port}.lock");
+        var path = System.IO.Path.Combine(BridgeDir, $"{port}.lock");
 
         var self = Process.GetCurrentProcess();
         var doc = new LockfileDoc
@@ -52,10 +52,6 @@ public sealed class Lockfile
             Pid = self.Id,
             PidStartTime = SafeStartTime(self),
             WorkspaceFolders = workspaceFolders.ToArray(),
-            IdeName = "Visual Studio",
-            Transport = "ws",
-            // CLI uses this to pick `tasklist.exe` (Windows) vs `ps` for PID-liveness checks.
-            RunningInWindows = RuntimeInformation.IsOSPlatform(OSPlatform.Windows),
             AuthToken = token,
         };
 
@@ -67,7 +63,7 @@ public sealed class Lockfile
     /// <summary>
     /// Rewrite the lockfile with new workspace folders (same port + token). The bridge starts at
     /// shell-init before any solution is open, so workspaceFolders is initially empty; call this when
-    /// a solution/folder opens so the CLI's /ide matches it against the current working directory.
+    /// a solution/folder opens so the shim can match it against the CLI's working directory.
     /// </summary>
     public void UpdateWorkspaceFolders(IReadOnlyList<string> folders)
     {
@@ -100,22 +96,21 @@ public sealed class Lockfile
     }
 
     /// <summary>
-    /// On startup, remove lockfiles whose owning process is dead. A stale lockfile pointing at a
-    /// dead WS server blocks reconnection (issue #5043). We ONLY delete dead-PID files - never
-    /// another live IDE's (e.g. a running VS Code) lockfile.
+    /// On startup, remove lockfiles whose owning process is dead, so the shim never picks a dead port.
+    /// We ONLY delete dead-PID files - never another live VS instance's.
     /// </summary>
     public static void ReapStale()
     {
-        if (!Directory.Exists(IdeDir)) return;
+        if (!Directory.Exists(BridgeDir)) return;
 
-        foreach (var file in Directory.EnumerateFiles(IdeDir, "*.lock"))
+        foreach (var file in Directory.EnumerateFiles(BridgeDir, "*.lock"))
         {
             try
             {
                 var doc = JsonConvert.DeserializeObject<LockfileDoc>(File.ReadAllText(file));
                 if (doc is null) continue;
 
-                if (!IsOwnerAlive(doc.Pid, doc.PidStartTime))
+                if (!IsProcessAlive(doc.Pid, doc.PidStartTime))
                 {
                     File.Delete(file);
                     Log.Info($"reaped stale lockfile {System.IO.Path.GetFileName(file)} (dead/recycled pid {doc.Pid})");
@@ -129,30 +124,37 @@ public sealed class Lockfile
     }
 
     /// <summary>
-    /// True if the lockfile's owning VS process is still alive. Beyond a bare PID check, when the
-    /// lockfile records a start time we verify the live PID's start time matches - so a recycled PID
-    /// (Windows reuses the PIDs of dead processes) is correctly treated as dead rather than a false
-    /// "alive". If the start time can't be read (e.g. access denied -> not our same-user devenv), we
-    /// keep the lockfile rather than risk reaping a live instance; the hooks' live-port probe skips it.
+    /// True if the process is still alive. Beyond a bare PID check, when a start time is known we verify
+    /// the live PID's start time matches - so a recycled PID (Windows reuses the PIDs of dead processes) is
+    /// correctly treated as dead. If the start time can't be read (access denied), assume alive.
     /// </summary>
-    private static bool IsOwnerAlive(int pid, long startTimeFileTimeUtc)
+    public static bool IsProcessAlive(int pid, long startTimeFileTimeUtc)
     {
         if (pid <= 0) return false;
         try
         {
             using var proc = Process.GetProcessById(pid); // throws ArgumentException if no such process
-            if (startTimeFileTimeUtc == 0) return true;   // legacy lockfile without identity -> PID-only
+            if (proc.HasExited) return false;
+            if (startTimeFileTimeUtc == 0) return true;
             try { return proc.StartTime.ToFileTimeUtc() == startTimeFileTimeUtc; }
-            catch { return true; }                        // can't introspect -> don't risk a false reap
+            catch { return true; }                        // can't introspect -> don't risk a false "dead"
         }
         catch (ArgumentException)
         {
             return false; // no process with this PID -> definitely dead
         }
+        catch (InvalidOperationException)
+        {
+            return false; // exited between lookup and query
+        }
+        catch (System.ComponentModel.Win32Exception)
+        {
+            return true; // exists but we can't query it
+        }
     }
 
-    /// <summary>Owning process start time as a UTC file-time, or 0 if unavailable.</summary>
-    private static long SafeStartTime(Process proc)
+    /// <summary>Process start time as a UTC file-time, or 0 if unavailable.</summary>
+    public static long SafeStartTime(Process proc)
     {
         try { return proc.StartTime.ToFileTimeUtc(); }
         catch { return 0; }
@@ -172,17 +174,13 @@ public sealed class Lockfile
         }
     }
 
-    /// <summary>Exact on-disk schema. Property names are wire-critical - do not rename casually.</summary>
+    /// <summary>Exact on-disk schema, read by vs-debug-shim.ps1. Do not rename properties casually.</summary>
     private sealed class LockfileDoc
     {
         [JsonProperty("pid")] public int Pid { get; set; }
-        // Extension-only (the CLI ignores unknown fields): the owning process's start time, paired with
-        // Pid to defeat PID reuse when reaping stale lockfiles.
+        // Paired with Pid to defeat PID reuse when reaping stale lockfiles.
         [JsonProperty("pidStartTime")] public long PidStartTime { get; set; }
         [JsonProperty("workspaceFolders")] public string[] WorkspaceFolders { get; set; } = Array.Empty<string>();
-        [JsonProperty("ideName")] public string IdeName { get; set; } = "Visual Studio";
-        [JsonProperty("transport")] public string Transport { get; set; } = "ws";
-        [JsonProperty("runningInWindows")] public bool RunningInWindows { get; set; }
         [JsonProperty("authToken")] public string AuthToken { get; set; } = "";
     }
 }

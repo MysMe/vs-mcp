@@ -51,7 +51,7 @@ internal sealed class VsSetDataBreakpointTool : IIdeTool
             return new JObject
             {
                 ["error"] = "debugger driving is disabled",
-                ["hint"] = "Enable 'Allow Claude to drive debugger' in the Claude Code panel in Visual Studio, then retry.",
+                ["hint"] = "Enable 'Allow Claude to drive debugger' in Visual Studio (Tools > Claude Debug MCP Status), then retry.",
             };
 
         string expr = (string?)args?["expression"] ?? "";

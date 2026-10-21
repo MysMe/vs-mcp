@@ -1,14 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011" xmlns:d="http://schemas.microsoft.com/developer/vsx-schema-design/2011">
   <Metadata>
-    <Identity Id="ClaudeCodeVS.d9032717-8a83-4ab5-9b63-2fe9d9a78481" Version="1.21.0" Language="en-US" Publisher="Rishi Gulati" />
-    <DisplayName>Claude Code for Visual Studio</DisplayName>
-    <Description xml:space="preserve">Bring Claude Code into Visual Studio: a native diff window with accept/reject (and reject-with-feedback), automatic selection and C#/C++ compiler-diagnostics context, live debugger access (Claude reads your runtime state and can opt-in drive the debugger), Roslyn code navigation with decompile, a test runner that catches flaky tests under the debugger, finished/needs-input notifications, and a token/cost panel. The claude CLI does the agent work; this extension is the IDE half of Claude Code's integration protocol. Requires the Claude Code CLI. Unofficial, not affiliated with Anthropic.</Description>
-    <MoreInfo>https://github.com/firish/claude_code_vs</MoreInfo>
-    <ReleaseNotes>https://github.com/firish/claude_code_vs/releases</ReleaseNotes>
+    <Identity Id="VsDebugMcp.798e095b-5e74-4a07-bdf0-500d897ef746" Version="0.1.0" Language="en-US" Publisher="MysMe" />
+    <DisplayName>Claude Debug MCP for Visual Studio</DisplayName>
+    <Description xml:space="preserve">A lean fork of Claude Code for Visual Studio (firish/claude_code_vs) that keeps only the debugger: a vs-debug MCP server that lets the claude CLI read and drive the Visual Studio debugger (state, locals, threads, stepping, breakpoints, attach, data breakpoints, ClrMD heap/deadlock/async diagnostics). No diff, panel, notifications or screen capture. Requires the Claude Code CLI. Unofficial, not affiliated with Anthropic.</Description>
+    <MoreInfo>https://github.com/MysMe/vs-mcp</MoreInfo>
     <Icon>Resources\icon.png</Icon>
     <PreviewImage>Resources\preview.png</PreviewImage>
-    <Tags>claude, claude code, ai, anthropic, llm, agent, coding assistant, diff, mcp, c++, c#</Tags>
+    <Tags>claude, claude code, mcp, debugger, c#</Tags>
   </Metadata>
   <Installation>
     <InstallationTarget Id="Microsoft.VisualStudio.Community" Version="[17.14,19.0)">
@@ -29,7 +28,6 @@
   </Prerequisites>
   <Assets>
     <Asset Type="Microsoft.VisualStudio.VsPackage" d:Source="Project" d:ProjectName="%CurrentProject%" Path="|%CurrentProject%;PkgdefProjectOutputGroup|" />
-    <Asset Type="Microsoft.VisualStudio.MefComponent" d:Source="Project" d:ProjectName="%CurrentProject%" Path="|%CurrentProject%|" />
     <!-- The Concord data-breakpoint engine component (compiled .vsdconfig rides in via the
          DataBpComponent ProjectReference output group). -->
     <Asset Type="DebuggerEngineExtension" Path="ClaudeCodeVS.DataBpComponent.vsdconfig" />

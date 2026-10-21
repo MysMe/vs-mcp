@@ -1,4 +1,0 @@
-<Solution>
-  <Project Path="BuildBreak.Core/BuildBreak.Core.csproj" />
-  <Project Path="BuildBreak.App/BuildBreak.App.csproj" />
-</Solution>
